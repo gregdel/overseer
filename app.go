@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,10 +19,12 @@ import (
 )
 
 // ip        - 4
+// ifindex   - 4
 // mac       - 6
 // padding   - 2
 // msg       - 128
-const perfRecordSize = 140
+// padding   - 4
+const perfRecordSize = 148
 
 type ebpfObjects struct {
 	XDP    *ebpf.Program `ebpf:"overseer"`
@@ -30,22 +33,35 @@ type ebpfObjects struct {
 }
 
 type app struct {
-	server http.Server
-	ebpf   ebpfObjects
+	devs     []string
+	server   http.Server
+	ebpf     ebpfObjects
+	registry *prometheus.Registry
+	cache    *cache
 }
 
-func newApp() *app {
+func newApp(srvAddr, devs string) (*app, error) {
 	mux := http.NewServeMux()
 	app := &app{
+		devs:     strings.Split(devs, ","),
+		registry: prometheus.NewRegistry(),
+		cache:    newCache(),
 		server: http.Server{
+			Addr:    srvAddr,
 			Handler: mux,
 		},
 	}
 
-	prometheus.Register(app)
-	mux.Handle("/metrics", promhttp.Handler())
+	if len(app.devs) == 0 {
+		return nil, fmt.Errorf("missing --devs option")
+	}
 
-	return app
+	app.registry.Register(app)
+	mux.Handle("/metrics", promhttp.HandlerFor(app.registry, promhttp.HandlerOpts{
+		Registry: app.registry,
+	}))
+
+	return app, nil
 }
 
 func (app *app) init() error {
@@ -55,7 +71,17 @@ func (app *app) init() error {
 		return err
 	}
 
-	return spec.LoadAndAssign(&app.ebpf, nil)
+	if err := spec.LoadAndAssign(&app.ebpf, nil); err != nil {
+		return err
+	}
+
+	for _, dev := range app.devs {
+		if err := app.handleXDPOnDev(dev, app.ebpf.XDP.FD()); err != nil {
+			fmt.Printf("Failed to attach XDP program on %s: %s\n", dev, err)
+		}
+	}
+
+	return nil
 }
 
 func (app *app) close() {
@@ -66,19 +92,33 @@ func (app *app) close() {
 	if app.ebpf.Stats != nil {
 		app.ebpf.Stats.Close()
 	}
+
+	for _, dev := range app.devs {
+		if err := app.handleXDPOnDev(dev, -1); err != nil {
+			fmt.Printf("Failed to attach XDP program on %s: %s\n", dev, err)
+		}
+	}
 }
 
-func (app *app) attachXDP(name string) error {
+func (app *app) handleXDPOnDev(name string, fd int) error {
+	if name == "" {
+		return fmt.Errorf("missing device name")
+	}
+
 	dev, err := netlink.LinkByName(name)
 	if err != nil {
 		return err
 	}
 
-	if err := netlink.LinkSetXdpFd(dev, app.ebpf.XDP.FD()); err != nil {
+	if err := netlink.LinkSetXdpFd(dev, fd); err != nil {
 		return err
 	}
 
-	fmt.Println("xdp program loaded on device", name)
+	action := "loaded on"
+	if fd == -1 {
+		action = "unloaded from"
+	}
+	fmt.Printf("XDP program %s device %q\n", action, name)
 
 	return nil
 }
@@ -91,6 +131,7 @@ func (app *app) readEvents(ctx context.Context) {
 	}
 	defer reader.Close()
 
+	fmt.Println("Starting to read perf events...")
 	for {
 		select {
 		case <-ctx.Done():
@@ -115,12 +156,12 @@ func (app *app) readEvents(ctx context.Context) {
 		}
 
 		k := &key{}
-		if err := k.UnmarshalBinary(record.RawSample[:12]); err != nil {
+		if err := k.UnmarshalBinary(record.RawSample[:k.expectedSize()]); err != nil {
 			fmt.Println("failed to unmarshal event", err)
 			continue
 		}
 
-		v := string(record.RawSample[12:])
+		v := string(record.RawSample[k.expectedSize():])
 
 		// TODO: log this properly
 		fmt.Println(k, v)
@@ -140,6 +181,7 @@ func (app *app) run(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		fmt.Println("Starting HTTP server with addr", app.server.Addr)
 		if err := app.server.ListenAndServe(); err != http.ErrServerClosed {
 			fmt.Println("HTTP server ListenAndServe:", err)
 		}
@@ -151,7 +193,6 @@ func (app *app) run(ctx context.Context) error {
 		app.readEvents(ctx)
 	}()
 
-	fmt.Println("running app")
 	exit := false
 	for !exit {
 		select {

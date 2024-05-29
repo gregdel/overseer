@@ -20,8 +20,6 @@ if [ -e "/run/netns/$ns_name" ]; then
 	sleep 1
 fi
 
-[ -d "/sys/kernel/debug" ] || mount -t debugfs none /sys/kernel/debug
-
 _log "Creating network namespace $ns_name"
 ip netns add "$ns_name"
 
@@ -40,8 +38,13 @@ ip -n "$ns_name" link set xdp object ./kern.o sec xdp.frags program dummy_pass d
 
 _log "Pinging host to get one packet flowing"
 ping -c 1 "$ip_prefix.1" >/dev/null
+_log "Pinging host to get one packet flowing"
+_log "Everything is ready"
 
-_log "Showing trace"
-tail -n 10 /sys/kernel/debug/tracing/trace
+_generate_traffic() {
+	sleep 2
+	ping -c 1 "$ip_prefix.1" >/dev/null
+}
+_generate_traffic &
 
-_log "All done"
+./"$project_name" --dev "$project_name"

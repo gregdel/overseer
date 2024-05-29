@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,14 +17,19 @@ func main() {
 }
 
 func run() error {
-	app := newApp()
+	var devs, srvAddr string
+	flag.StringVar(&devs, "dev", "",
+		"Comma seperated list of devices to attach to")
+	flag.StringVar(&srvAddr, "srvAddr", ":9042", "server host:port")
+	flag.Parse()
+
+	app, err := newApp(srvAddr, devs)
+	if err != nil {
+		return err
+	}
 	defer app.close()
 
 	if err := app.init(); err != nil {
-		return err
-	}
-
-	if err := app.attachXDP("overseer"); err != nil {
 		return err
 	}
 

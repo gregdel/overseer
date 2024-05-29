@@ -6,12 +6,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+var promKeyLabels = []string{"macaddr", "ip", "dev"}
+
 func (app *app) descPkts() *prometheus.Desc {
 	return prometheus.NewDesc(
 		"overseer_packets_total",
 		"Number of packet seen by overseer in number of packets",
-		[]string{"macaddr", "ip"},
-		prometheus.Labels{},
+		promKeyLabels, prometheus.Labels{},
 	)
 }
 
@@ -19,8 +20,7 @@ func (app *app) descBytes() *prometheus.Desc {
 	return prometheus.NewDesc(
 		"overseer_bytes_total",
 		"Number of packet seen by overseer in bytes",
-		[]string{"macaddr", "ip"},
-		prometheus.Labels{},
+		promKeyLabels, prometheus.Labels{},
 	)
 }
 
@@ -39,12 +39,14 @@ func (app *app) Collect(c chan<- prometheus.Metric) {
 			prometheus.CounterValue,
 			float64(v.packets),
 			k.macaddr.String(), k.ip.String(),
+			app.cache.linkName(k.ifindex),
 		)
 		c <- prometheus.MustNewConstMetric(
 			app.descBytes(),
 			prometheus.CounterValue,
 			float64(v.bytes),
 			k.macaddr.String(), k.ip.String(),
+			app.cache.linkName(k.ifindex),
 		)
 	}
 

@@ -4,14 +4,11 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 
-#define DEBUG 1
 #define MAX_ENTRIES 256
-
-#define debug_printk(fmt, args...) \
-	do { if (DEBUG) bpf_printk(fmt, ##args); } while (0)
 
 struct key {
 	__be32 ip;
+	__u32 ifindex;
 	unsigned char macaddr[ETH_ALEN];
 	__u8 padding[2];
 };
@@ -64,18 +61,8 @@ int overseer(struct xdp_md *ctx) {
 
 	struct key key = {0};
 	key.ip = iphdr->saddr;
+	key.ifindex = ctx->ingress_ifindex;
 	__builtin_memcpy(&key.macaddr, ethhdr->h_source, ETH_ALEN);
-
-	struct event e = {
-		.key = key,
-		.msg = "Handling packet",
-	};
-	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
-
-	debug_printk("mac:%02x:%02x:%02x:%02x:%02x:%02x ip:%pI4",
-		     key.macaddr[0], key.macaddr[1], key.macaddr[2],
-		     key.macaddr[3], key.macaddr[4], key.macaddr[5],
-		     &key.ip);
 
 	struct value v = {
 		.pkts = 1,
@@ -84,11 +71,16 @@ int overseer(struct xdp_md *ctx) {
 
 	struct value *old_value = bpf_map_lookup_elem(&stats, &key);
 	if (old_value) {
+		v.pkts += old_value->pkts;
 		v.bytes += old_value->bytes;
+	} else {
+		struct event e = { .key = key, .msg = "New entry" };
+		bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 	}
 
 	if (bpf_map_update_elem(&stats, &key, &v, BPF_ANY) != 0) {
-		debug_printk("failed to add entry mac:%pM ip:%pI4", &key.macaddr, &key.ip);
+		struct event e = { .key = key, .msg = "Failed to add entry" };
+		bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 		return XDP_PASS;
 	}
 

@@ -10,17 +10,19 @@ import (
 type key struct {
 	macaddr net.HardwareAddr
 	ip      netip.Addr
+	ifindex uint32
 }
 
 func (k *key) expectedSize() int {
-	// IP  (4)
-	// Mac (6)
-	// Padding (2)
-	return 12
+	// IP       (4)
+	// Ifindex  (4)
+	// Mac      (6)
+	// Padding  (2)
+	return 16
 }
 
 func (k key) String() string {
-	return fmt.Sprintf("%s [%s]", k.ip, k.macaddr)
+	return fmt.Sprintf("%s [%s@%d]", k.ip, k.macaddr, k.ifindex)
 }
 
 func (k *key) UnmarshalBinary(data []byte) error {
@@ -35,9 +37,11 @@ func (k *key) UnmarshalBinary(data []byte) error {
 		return fmt.Errorf("failed to get unmarshal key ip")
 	}
 
+	k.ifindex = binary.NativeEndian.Uint32(data[4:8])
+
 	k.macaddr = make([]byte, 6)
 	for i := 0; i < 6; i++ {
-		k.macaddr[i] = data[4+i]
+		k.macaddr[i] = data[8+i]
 	}
 
 	return nil

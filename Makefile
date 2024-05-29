@@ -11,7 +11,7 @@ all: kern.o overseer
 kern.o: kern/kern.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-overseer: kern.o
+overseer: kern.o $(wildcard *.go)
 	CGO_ENABLED=0 go build -o $@
 
 .PHONY: all
