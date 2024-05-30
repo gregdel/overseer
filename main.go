@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -18,12 +19,13 @@ func main() {
 
 func run() error {
 	var devs, srvAddr string
-	flag.StringVar(&devs, "dev", "",
-		"Comma seperated list of devices to attach to")
+	var statsInterval time.Duration
+	flag.StringVar(&devs, "dev", "", "Comma seperated list of devices to attach to")
 	flag.StringVar(&srvAddr, "srvAddr", ":9042", "server host:port")
+	flag.DurationVar(&statsInterval, "stats-interval", time.Duration(0), "stats display interval")
 	flag.Parse()
 
-	app, err := newApp(srvAddr, devs)
+	app, err := newApp(srvAddr, devs, statsInterval)
 	if err != nil {
 		return err
 	}

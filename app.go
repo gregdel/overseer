@@ -33,19 +33,21 @@ type ebpfObjects struct {
 }
 
 type app struct {
-	devs     []string
-	server   http.Server
-	ebpf     ebpfObjects
-	registry *prometheus.Registry
-	cache    *cache
+	devs          []string
+	server        http.Server
+	ebpf          ebpfObjects
+	registry      *prometheus.Registry
+	cache         *cache
+	statsInterval time.Duration
 }
 
-func newApp(srvAddr, devs string) (*app, error) {
+func newApp(srvAddr, devs string, statsInterval time.Duration) (*app, error) {
 	mux := http.NewServeMux()
 	app := &app{
-		devs:     strings.Split(devs, ","),
-		registry: prometheus.NewRegistry(),
-		cache:    newCache(),
+		devs:          strings.Split(devs, ","),
+		registry:      prometheus.NewRegistry(),
+		statsInterval: statsInterval,
+		cache:         newCache(),
 		server: http.Server{
 			Addr:    srvAddr,
 			Handler: mux,
@@ -156,12 +158,12 @@ func (app *app) readEvents(ctx context.Context) {
 		}
 
 		k := &key{}
-		if err := k.UnmarshalBinary(record.RawSample[:k.expectedSize()]); err != nil {
+		if err := k.UnmarshalBinary(record.RawSample[:k.size()]); err != nil {
 			fmt.Println("failed to unmarshal event", err)
 			continue
 		}
 
-		v := string(record.RawSample[k.expectedSize():])
+		v := string(record.RawSample[k.size():])
 
 		// TODO: log this properly
 		fmt.Println(k, v)
@@ -174,9 +176,6 @@ func (app *app) readEvents(ctx context.Context) {
 }
 
 func (app *app) run(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -193,15 +192,29 @@ func (app *app) run(ctx context.Context) error {
 		app.readEvents(ctx)
 	}()
 
-	exit := false
-	for !exit {
-		select {
-		case <-ctx.Done():
-			exit = true
-		case <-ticker.C:
-			app.printStats()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if app.statsInterval == 0 {
+			return
 		}
-	}
+
+		ticker := time.NewTicker(app.statsInterval)
+		defer ticker.Stop()
+
+		exit := false
+		for !exit {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				app.printStats()
+			}
+		}
+	}()
+
+	<-ctx.Done()
 
 	if err := app.server.Shutdown(context.Background()); err != nil {
 		fmt.Println("HTTP server Shutdown:", err)
@@ -218,7 +231,10 @@ func (app *app) printStats() {
 	fmt.Println("Stats:")
 	iterator := app.ebpf.Stats.Iterate()
 	for iterator.Next(&k, &v) {
-		fmt.Println("\t", k, v)
+		fmt.Printf("%s %s@%s pkts:%d bytes:%d last_seen:%s ago\n",
+			k.ip, k.macaddr, app.cache.linkName(k.ifindex),
+			v.packets, v.bytes, time.Since(v.lastSeen),
+		)
 	}
 
 	if err := iterator.Err(); err != nil {

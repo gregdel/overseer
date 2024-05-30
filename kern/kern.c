@@ -16,6 +16,7 @@ struct key {
 struct value {
 	__u64 pkts;
 	__u64 bytes;
+	__u64 last_seen;
 };
 
 struct event {
@@ -64,9 +65,11 @@ int overseer(struct xdp_md *ctx) {
 	key.ifindex = ctx->ingress_ifindex;
 	__builtin_memcpy(&key.macaddr, ethhdr->h_source, ETH_ALEN);
 
+	// TODO: maybe we could get time from ctx metadata ?
 	struct value v = {
 		.pkts = 1,
 		.bytes = bpf_xdp_get_buff_len(ctx),
+		v.last_seen = bpf_ktime_get_tai_ns(),
 	};
 
 	struct value *old_value = bpf_map_lookup_elem(&stats, &key);
