@@ -35,16 +35,18 @@ type ebpfObjects struct {
 type app struct {
 	devs          []string
 	server        http.Server
+	dnsmasqLeases string
 	ebpf          ebpfObjects
 	registry      *prometheus.Registry
 	cache         *cache
 	statsInterval time.Duration
 }
 
-func newApp(srvAddr, devs string, statsInterval time.Duration) (*app, error) {
+func newApp(srvAddr, devs, dnsmasqLeases string, statsInterval time.Duration) (*app, error) {
 	mux := http.NewServeMux()
 	app := &app{
 		devs:          strings.Split(devs, ","),
+		dnsmasqLeases: dnsmasqLeases,
 		registry:      prometheus.NewRegistry(),
 		statsInterval: statsInterval,
 		cache:         newCache(),
@@ -190,6 +192,12 @@ func (app *app) run(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		app.readEvents(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		app.handleDnsmasq(ctx)
 	}()
 
 	wg.Add(1)

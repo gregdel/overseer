@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/vishvananda/netlink"
@@ -11,12 +12,39 @@ import (
 type cache struct {
 	mu        sync.Mutex
 	linkNames map[int]netlink.Link
+	leases    map[string]string
 }
 
 func newCache() *cache {
 	return &cache{
 		linkNames: map[int]netlink.Link{},
+		leases:    map[string]string{},
 	}
+}
+
+func (c *cache) setLeaseName(macaddr, name string) {
+	macaddr = strings.ToLower(macaddr)
+	oldName, ok := c.leaseName(macaddr)
+	if ok {
+		if oldName == name {
+			return
+		}
+
+		fmt.Printf("Updating entry macaddr:%q name:%q->%q\n", macaddr, oldName, name)
+	} else {
+		fmt.Printf("Adding entry lease macaddr:%q name:%q\n", macaddr, name)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.leases[macaddr] = name
+}
+
+func (c *cache) leaseName(macaddr string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s, ok := c.leases[macaddr]
+	return s, ok
 }
 
 func (c *cache) linkName(ifindex uint32) string {

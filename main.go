@@ -18,14 +18,15 @@ func main() {
 }
 
 func run() error {
-	var devs, srvAddr string
+	var devs, srvAddr, dnsmasqLeases string
 	var statsInterval time.Duration
 	flag.StringVar(&devs, "dev", "", "Comma seperated list of devices to attach to")
+	flag.StringVar(&dnsmasqLeases, "dnsmasqLeases", "/run/dnsmasq.leases", "Dnsmasq lease file")
 	flag.StringVar(&srvAddr, "srvAddr", ":9042", "server host:port")
 	flag.DurationVar(&statsInterval, "stats-interval", time.Duration(0), "stats display interval")
 	flag.Parse()
 
-	app, err := newApp(srvAddr, devs, statsInterval)
+	app, err := newApp(srvAddr, devs, dnsmasqLeases, statsInterval)
 	if err != nil {
 		return err
 	}
