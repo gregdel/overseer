@@ -28,7 +28,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
     __uint(key_size, sizeof(__u32));
     __uint(value_size, sizeof(__u32));
-} events SEC(".maps");
+} overseer_events SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -36,7 +36,7 @@ struct {
 	__uint(value_size, sizeof(struct value));
 	__uint(max_entries, MAX_ENTRIES);
 	__uint(map_flags, BPF_F_NO_PREALLOC);
-} stats SEC(".maps");
+} overseer_stats SEC(".maps");
 
 SEC("xdp.frags")
 int overseer(struct xdp_md *ctx) {
@@ -72,18 +72,18 @@ int overseer(struct xdp_md *ctx) {
 		v.last_seen = bpf_ktime_get_tai_ns(),
 	};
 
-	struct value *old_value = bpf_map_lookup_elem(&stats, &key);
+	struct value *old_value = bpf_map_lookup_elem(&overseer_stats, &key);
 	if (old_value) {
 		v.pkts += old_value->pkts;
 		v.bytes += old_value->bytes;
 	} else {
 		struct event e = { .key = key, .msg = "New entry" };
-		bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+		bpf_perf_event_output(ctx, &overseer_events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 	}
 
-	if (bpf_map_update_elem(&stats, &key, &v, BPF_ANY) != 0) {
+	if (bpf_map_update_elem(&overseer_stats, &key, &v, BPF_ANY) != 0) {
 		struct event e = { .key = key, .msg = "Failed to add entry" };
-		bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+		bpf_perf_event_output(ctx, &overseer_events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 		return XDP_PASS;
 	}
 

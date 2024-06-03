@@ -28,8 +28,8 @@ const perfRecordSize = 148
 
 type ebpfObjects struct {
 	XDP    *ebpf.Program `ebpf:"overseer"`
-	Stats  *ebpf.Map     `ebpf:"stats"`
-	Events *ebpf.Map     `ebpf:"events"`
+	Stats  *ebpf.Map     `ebpf:"overseer_stats"`
+	Events *ebpf.Map     `ebpf:"overseer_events"`
 }
 
 type app struct {
