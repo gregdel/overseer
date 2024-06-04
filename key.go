@@ -11,9 +11,20 @@ import (
 type direction uint8
 
 const (
-	directionIngress direction = 0
-	directionEgress  direction = 1
+	directionIngress direction = iota
+	directionEgress
 )
+
+func dirString(d direction) string {
+	switch d {
+	case directionIngress:
+		return "ingress"
+	case directionEgress:
+		return "egress"
+	default:
+		return "unknown"
+	}
+}
 
 type key struct {
 	macaddr   net.HardwareAddr
@@ -32,15 +43,8 @@ func (k *key) size() int {
 }
 
 func (k key) String() string {
-	dir := "unknown"
-	if k.direction == directionIngress {
-		dir = "ingress"
-	} else if k.direction == directionEgress {
-		dir = "egress"
-	}
-
 	return fmt.Sprintf("ip:%s macaddr:%s ifindex:%d direction:%s",
-		k.ip, k.macaddr, k.ifindex, dir)
+		k.ip, k.macaddr, k.ifindex, dirString(k.direction))
 }
 
 func (k *key) UnmarshalBinary(data []byte) error {

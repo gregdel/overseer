@@ -144,11 +144,11 @@ func (app *app) attachTCX(name string) error {
 		return err
 	}
 
-	for _, direction := range []string{"ingress", "egress"} {
+	for _, direction := range []direction{directionIngress, directionEgress} {
 		var prog *ebpf.Program
 		var attach ebpf.AttachType
 		var l link.Link
-		if direction == "ingress" {
+		if direction == directionIngress {
 			prog = app.ebpf.Ingress
 			attach = ebpf.AttachTCXIngress
 		} else {
@@ -166,13 +166,15 @@ func (app *app) attachTCX(name string) error {
 			return fmt.Errorf("attaching tcx: %w", err)
 		}
 
-		pinPath := filepath.Join(ebpfPinPath, "overseer_tcx_"+name+"_"+direction)
+		dir := dirString(direction)
+
+		pinPath := filepath.Join(ebpfPinPath, "overseer_tcx_"+name+"_"+dir)
 		if err := l.Pin(pinPath); err != nil {
 			fmt.Println("Failed to pin tcx program:", err)
 			continue
 		}
 
-		fmt.Printf("TCX program loaded on dev:%q direction:%q\n", name, direction)
+		fmt.Printf("TCX program loaded on dev:%q direction:%q\n", name, dir)
 	}
 
 	return nil

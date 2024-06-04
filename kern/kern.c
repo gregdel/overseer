@@ -6,9 +6,8 @@
 #include <bpf/bpf_endian.h>
 
 #define MAX_ENTRIES 256
-#define DIR_INGRESS 0
-#define DIR_EGRESS  1
 
+enum traffic_direction { DIR_INGRESS, DIR_EGRESS };
 enum perf_event_type { EVENT_NEW, EVENT_FAILED };
 
 struct key {
@@ -54,18 +53,26 @@ void send_event(struct __sk_buff *skb, struct key key, enum perf_event_type type
 }
 
 __always_inline
-int is_private(__be32 ip) {
-	__u32 nip = bpf_ntohl(ip);
-	__u32 p1 = nip >> 24;
-	__u32 p2 = (nip & 0x00FF0000) >> 16;
+__u32 ip_mask(__u32 ip, __u8 len) {
+	__u32 mask = ~0;
+	mask = mask << (32 - len);
+	return ip & mask;
+}
 
-	if ((p1 == 10) ||
-	    ((p1 == 192) && (p2 == 168)) ||
-	    ((p1 == 100) && (p2 == 64))) {
-		return 1;
-	}
+__always_inline
+int is_private(__be32 n_ip) {
+	__u32 ip = bpf_ntohl(n_ip);
 
-	return 0;
+	// RFC 1918
+	//   10.0.0.0/8
+	//   172.16.0.0/12
+	//   192.168.0.0/16
+	// RFC 7598
+	//   100.64.0.0/10
+	return ((ip_mask(0x0a000000, 8) == ip_mask(ip, 8)) ||
+	    (ip_mask(0xac100000, 12) == ip_mask(ip, 12)) ||
+	    (ip_mask(0xc0a80000, 16) == ip_mask(ip, 16)) ||
+	    (ip_mask(0x64400000, 10) == ip_mask(ip, 10)));
 }
 
 __always_inline
@@ -103,7 +110,7 @@ void update_stats(struct __sk_buff *skb, __u8 direction,
 }
 
 __always_inline
-int overseer(struct __sk_buff *skb, __u8 direction) {
+int overseer(struct __sk_buff *skb, enum traffic_direction direction) {
 	void *data = (void *)(long)skb->data;
 	void *data_end = (void *)(long)skb->data_end;
 	void *offset = data;
