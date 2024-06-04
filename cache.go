@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,9 +29,9 @@ func (c *cache) setLeaseName(macaddr, name string) {
 			return
 		}
 
-		fmt.Printf("Updating entry macaddr:%q name:%q->%q\n", macaddr, oldName, name)
+		logInfo("cache", "Updating entry macaddr:%q name:%q->%q\n", macaddr, oldName, name)
 	} else {
-		fmt.Printf("Adding entry lease macaddr:%q name:%q\n", macaddr, name)
+		logInfo("cache", "Adding entry lease macaddr:%q name:%q\n", macaddr, name)
 	}
 
 	c.mu.Lock()
@@ -59,12 +58,13 @@ func (c *cache) linkName(ifindex uint32) string {
 
 	link, err := netlink.LinkByIndex(index)
 	if err != nil {
-		fmt.Printf("Failed to get interface name for ifindex:%d\n", index)
+		logErr("cache", "Failed to get interface name for ifindex:%d\n", index)
 		return strconv.Itoa(index)
 	}
 
 	linkName := link.Attrs().Name
-	fmt.Printf("Adding link %q to cache\n", linkName)
+	logInfo("cache", "Adding link %q to cache\n", linkName)
+
 	c.linkNames[index] = link
 	return linkName
 }

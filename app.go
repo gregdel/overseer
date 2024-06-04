@@ -94,7 +94,7 @@ func (app *app) init() error {
 
 	for _, dev := range app.devs {
 		if err := app.attachTCX(dev); err != nil {
-			fmt.Printf("Failed to attach tcx program on %s: %s\n", dev, err)
+			logErr("init", "Failed to attach tcx program on %s: %s\n", dev, err)
 		}
 	}
 
@@ -115,7 +115,7 @@ func (app *app) close() {
 	// Delete all pinned files
 	files, err := os.ReadDir(ebpfPinPath)
 	if err != nil {
-		fmt.Println("Failed to read pinned path", err)
+		logErr("close", "Failed to read pinned path: %s\n", err)
 	}
 
 	for _, file := range files {
@@ -125,9 +125,9 @@ func (app *app) close() {
 		}
 
 		path := filepath.Join(ebpfPinPath, name)
-		fmt.Println("Removing pinned object", path)
+		logInfo("close", "Removing pinned object: %q\n", path)
 		if err := os.Remove(path); err != nil {
-			fmt.Println("Failed to remove pinned path", err)
+			logErr("close", "Failed to remove pinned path: %s\n", err)
 		}
 	}
 }
@@ -161,16 +161,15 @@ func (app *app) attachTCX(name string) error {
 			Anchor:    link.Tail(),
 		})
 		if err != nil {
-			return fmt.Errorf("attaching tcx: %w", err)
+			return fmt.Errorf("failed to attach link: %w", err)
 		}
 
 		pinPath := filepath.Join(ebpfPinPath, "overseer_tcx_"+name+"_"+direction.String())
 		if err := l.Pin(pinPath); err != nil {
-			fmt.Println("Failed to pin tcx program:", err)
-			continue
+			return fmt.Errorf("failed to pin path: %w", err)
 		}
 
-		fmt.Printf("TCX program loaded on dev:%q direction:%q\n", name, direction)
+		logInfo("tcx", "Program loaded on dev:%q direction:%q\n", name, direction)
 	}
 
 	return nil
@@ -181,9 +180,9 @@ func (app *app) run(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		fmt.Println("Starting HTTP server with addr", app.server.Addr)
+		logInfo("http", "Starting HTTP server with addr: %s\n", app.server.Addr)
 		if err := app.server.ListenAndServe(); err != http.ErrServerClosed {
-			fmt.Println("HTTP server ListenAndServe:", err)
+			logInfo("http", "ListenAndServe failure: %s\n", err)
 		}
 	}()
 
@@ -224,7 +223,7 @@ func (app *app) run(ctx context.Context) error {
 	<-ctx.Done()
 
 	if err := app.server.Shutdown(context.Background()); err != nil {
-		fmt.Println("HTTP server Shutdown:", err)
+		logInfo("http", "Server shutdown failure: %s\n", err)
 	}
 
 	wg.Wait()
@@ -235,16 +234,15 @@ func (app *app) printStats() {
 	var k key
 	var v value
 
-	fmt.Println("Stats:")
 	iterator := app.ebpf.Stats.Iterate()
 	for iterator.Next(&k, &v) {
-		fmt.Printf("%s %s@%s %d pkts:%d bytes:%d last_seen:%s ago\n",
+		logInfo("stats", "%s %s@%s %d pkts:%d bytes:%d last_seen:%s ago\n",
 			k.ip, k.macaddr, app.cache.linkName(k.ifindex), k.direction,
 			v.packets, v.bytes, time.Since(v.lastSeen),
 		)
 	}
 
 	if err := iterator.Err(); err != nil {
-		fmt.Println("got error:", err)
+		logErr("init", "Failed to iterate on stats map: %s\n", err)
 	}
 }

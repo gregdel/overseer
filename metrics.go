@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -54,6 +52,6 @@ func (app *app) Collect(c chan<- prometheus.Metric) {
 	}
 
 	if err := iterator.Err(); err != nil {
-		fmt.Println("got error:", err)
+		logErr("metrics", "Failed to iterate on stats map: %q\n", err)
 	}
 }

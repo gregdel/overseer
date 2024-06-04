@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"log"
 	"net"
 	"os"
@@ -14,7 +13,7 @@ import (
 
 func (app *app) handleDnsmasq(ctx context.Context) error {
 	if app.dnsmasqLeases == "" {
-		fmt.Println("No dnsmasq lease file, ignoring")
+		logInfo("dnsmasq", "No lease file, ignoring\n")
 		return nil
 	}
 
@@ -43,23 +42,23 @@ func (app *app) handleDnsmasq(ctx context.Context) error {
 					continue
 				}
 
-				fmt.Println("Dnsmasq file changed, updating")
+				logInfo("dnsmasq", "Lease file updated\n")
 				if err := app.readDnsmasqLeases(); err != nil {
-					fmt.Println("Failed to read dnsmasq leases:", err)
+					logErr("dnsmasq", "Failed to read leases file: %s\n", err)
 					continue
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
-				log.Println("error:", err)
+				logErr("dnsmasq", "Got watcher error: %s\n", err)
 			}
 		}
 	}()
 
 	err = watcher.Add(app.dnsmasqLeases)
 	if err != nil {
-		fmt.Println("Failed to watch dnsmasq leases file", err)
+		logErr("dnsmasq", "Failed to watch dnsmasq leases file: %s\n", err)
 	}
 
 	<-ctx.Done()
@@ -75,20 +74,21 @@ func (app *app) readDnsmasqLeases() error {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
+		line := scanner.Text()
+		fields := strings.Fields(line)
 		if len(fields) < 5 {
-			fmt.Println("failed to parse dnsmasq line with fileds", fields)
+			logErr("dnsmasq", "Failed to parse line: %s\n", line)
 			continue
 		}
 
 		mac, err := net.ParseMAC(fields[1])
 		if err != nil {
-			fmt.Println("failed to parse lease macaddr", err)
+			logErr("dnsmasq", "Failed to parse macaddr: %s\n", err)
 			continue
 		}
 
 		if net.ParseIP(fields[2]) == nil {
-			fmt.Println("failed to parse lease ip", err)
+			logErr("dnsmasq", "Failed to parse IP: %s\n", err)
 			continue
 		}
 

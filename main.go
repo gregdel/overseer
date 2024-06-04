@@ -41,8 +41,8 @@ func run() error {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigs
-		fmt.Println("closing app from signal")
+		s := <-sigs
+		logInfo("signal", "Closing app after receiving: %s\n", s)
 		cancel()
 	}()
 

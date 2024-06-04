@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"time"
 
@@ -31,12 +30,12 @@ func (e eventType) String() string {
 func (app *app) readEvents(ctx context.Context) {
 	reader, err := perf.NewReader(app.ebpf.Events, os.Getpagesize())
 	if err != nil {
-		fmt.Println("failed to get perf reader", err)
+		logErr("perf_events", "Failed to get reader: %s\n", err)
 		return
 	}
 	defer reader.Close()
 
-	fmt.Println("Starting to read perf events...")
+	logInfo("perf_events", "Starting to read events\n")
 	for {
 		select {
 		case <-ctx.Done():
@@ -49,28 +48,28 @@ func (app *app) readEvents(ctx context.Context) {
 		record, err := reader.Read()
 		if err != nil {
 			if !errors.Is(err, os.ErrDeadlineExceeded) {
-				fmt.Println("failed to read perf event", err)
+				logErr("perf_events", "Failed to read event: %s\n", err)
 			}
 			continue
 		}
 
 		if len(record.RawSample) != perfRecordSize {
-			fmt.Printf("invalid sample size got %d expected %d\n",
+			logErr("perf_events", "Invalid sample size, got %d expected %d\n",
 				len(record.RawSample), perfRecordSize)
 			continue
 		}
 
 		k := &key{}
 		if err := k.UnmarshalBinary(record.RawSample[:k.size()]); err != nil {
-			fmt.Println("failed to unmarshal event", err)
+			logErr("perf_events", "Failed to unmarshal key: %s\n", err)
 			continue
 		}
 
 		event := eventType(record.RawSample[k.size()])
-		fmt.Printf("%s: %s\n", event, k)
+		logInfo("perf_events", "%s %s\n", event, k)
 
 		if record.LostSamples != 0 {
-			fmt.Printf("lost %d record samples\n", record.LostSamples)
+			logInfo("perf_events", "Lost %d record samples\n", record.LostSamples)
 			return
 		}
 	}
