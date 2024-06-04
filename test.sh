@@ -33,10 +33,6 @@ _log "Adding IPs $dev_name:$ip_prefix.0 <-> host:$ip_prefix.1"
 ip addr add "$ip_prefix.0/31" dev "$dev_name"
 ip -n "$ns_name" addr add "$ip_prefix.1/31" dev host
 
-_log "Attaching XDP program on $dev_name"
-ip link set xdp object ./kern.o sec xdp.frags program "$project_name" dev "$dev_name"
-ip -n "$ns_name" link set xdp object ./kern.o sec xdp.frags program dummy_pass dev host
-
 _log "Pinging host to get one packet flowing"
 ping -c 1 "$ip_prefix.1" >/dev/null
 _log "Pinging host to get one packet flowing"

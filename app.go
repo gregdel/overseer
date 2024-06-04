@@ -7,29 +7,34 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/vishvananda/netlink"
 )
 
+var ebpfPinPath = "/sys/fs/bpf"
+
 // ip        - 4
 // ifindex   - 4
 // mac       - 6
 // padding   - 2
-// msg       - 128
-// padding   - 4
-const perfRecordSize = 148
+// event     - 1
+// padding   - 3
+const perfRecordSize = 20
 
 type ebpfObjects struct {
-	XDP    *ebpf.Program `ebpf:"overseer"`
-	Stats  *ebpf.Map     `ebpf:"overseer_stats"`
-	Events *ebpf.Map     `ebpf:"overseer_events"`
+	Ingress *ebpf.Program `ebpf:"overseer_ingress"`
+	Egress  *ebpf.Program `ebpf:"overseer_egress"`
+	Stats   *ebpf.Map     `ebpf:"overseer_stats"`
+	Events  *ebpf.Map     `ebpf:"overseer_events"`
 }
 
 type app struct {
@@ -69,19 +74,29 @@ func newApp(srvAddr, devs, dnsmasqLeases string, statsInterval time.Duration) (*
 }
 
 func (app *app) init() error {
-	prog := bytes.NewReader(xdpProg)
+	prog := bytes.NewReader(ebpfProg)
 	spec, err := ebpf.LoadCollectionSpecFromReader(prog)
 	if err != nil {
 		return err
 	}
 
-	if err := spec.LoadAndAssign(&app.ebpf, nil); err != nil {
+	// TODO: get pin path from command line
+	// TODO: add option to force the cleanup of pinned path
+	opts := &ebpf.CollectionOptions{
+		Maps: ebpf.MapOptions{PinPath: ebpfPinPath},
+		Programs: ebpf.ProgramOptions{
+			// LogLevel: ebpf.LogLevelStats,
+			LogLevel: ebpf.LogLevelInstruction,
+		},
+	}
+
+	if err := spec.LoadAndAssign(&app.ebpf, opts); err != nil {
 		return err
 	}
 
 	for _, dev := range app.devs {
-		if err := app.handleXDPOnDev(dev, app.ebpf.XDP.FD()); err != nil {
-			fmt.Printf("Failed to attach XDP program on %s: %s\n", dev, err)
+		if err := app.attachTCX(dev); err != nil {
+			fmt.Printf("Failed to attach tcx program on %s: %s\n", dev, err)
 		}
 	}
 
@@ -89,22 +104,37 @@ func (app *app) init() error {
 }
 
 func (app *app) close() {
-	if app.ebpf.XDP != nil {
-		app.ebpf.XDP.Close()
+	for _, prog := range []*ebpf.Program{
+		app.ebpf.Ingress,
+		app.ebpf.Egress,
+	} {
+		if prog == nil {
+			continue
+		}
+		prog.Close()
 	}
 
-	if app.ebpf.Stats != nil {
-		app.ebpf.Stats.Close()
+	// Delete all pinned files
+	files, err := os.ReadDir(ebpfPinPath)
+	if err != nil {
+		fmt.Println("Failed to read pinned path", err)
 	}
 
-	for _, dev := range app.devs {
-		if err := app.handleXDPOnDev(dev, -1); err != nil {
-			fmt.Printf("Failed to attach XDP program on %s: %s\n", dev, err)
+	for _, file := range files {
+		name := file.Name()
+		if file.IsDir() || !strings.Contains(name, "overseer_") {
+			continue
+		}
+
+		path := filepath.Join(ebpfPinPath, name)
+		fmt.Println("Removing pinned object", path)
+		if err := os.Remove(path); err != nil {
+			fmt.Println("Failed to remove pinned path", err)
 		}
 	}
 }
 
-func (app *app) handleXDPOnDev(name string, fd int) error {
+func (app *app) attachTCX(name string) error {
 	if name == "" {
 		return fmt.Errorf("missing device name")
 	}
@@ -114,15 +144,36 @@ func (app *app) handleXDPOnDev(name string, fd int) error {
 		return err
 	}
 
-	if err := netlink.LinkSetXdpFd(dev, fd); err != nil {
-		return err
-	}
+	for _, direction := range []string{"ingress", "egress"} {
+		var prog *ebpf.Program
+		var attach ebpf.AttachType
+		var l link.Link
+		if direction == "ingress" {
+			prog = app.ebpf.Ingress
+			attach = ebpf.AttachTCXIngress
+		} else {
+			prog = app.ebpf.Egress
+			attach = ebpf.AttachTCXEgress
+		}
 
-	action := "loaded on"
-	if fd == -1 {
-		action = "unloaded from"
+		l, err := link.AttachTCX(link.TCXOptions{
+			Program:   prog,
+			Attach:    attach,
+			Interface: dev.Attrs().Index,
+			Anchor:    link.Tail(),
+		})
+		if err != nil {
+			return fmt.Errorf("attaching tcx: %w", err)
+		}
+
+		pinPath := filepath.Join(ebpfPinPath, "overseer_tcx_"+name+"_"+direction)
+		if err := l.Pin(pinPath); err != nil {
+			fmt.Println("Failed to pin tcx program:", err)
+			continue
+		}
+
+		fmt.Printf("TCX program loaded on dev:%q direction:%q\n", name, direction)
 	}
-	fmt.Printf("XDP program %s device %q\n", action, name)
 
 	return nil
 }
@@ -239,8 +290,8 @@ func (app *app) printStats() {
 	fmt.Println("Stats:")
 	iterator := app.ebpf.Stats.Iterate()
 	for iterator.Next(&k, &v) {
-		fmt.Printf("%s %s@%s pkts:%d bytes:%d last_seen:%s ago\n",
-			k.ip, k.macaddr, app.cache.linkName(k.ifindex),
+		fmt.Printf("%s %s@%s %d pkts:%d bytes:%d last_seen:%s ago\n",
+			k.ip, k.macaddr, app.cache.linkName(k.ifindex), k.direction,
 			v.packets, v.bytes, time.Since(v.lastSeen),
 		)
 	}

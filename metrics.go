@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-var promKeyLabels = []string{"macaddr", "ip", "dev", "device_name"}
+var promKeyLabels = []string{"macaddr", "ip", "dev", "device_name", "direction"}
 
 func (app *app) descPkts() *prometheus.Desc {
 	return prometheus.NewDesc(
@@ -35,13 +35,17 @@ func (app *app) Collect(c chan<- prometheus.Metric) {
 	iterator := app.ebpf.Stats.Iterate()
 	for iterator.Next(&k, &v) {
 		deviceName, _ := app.cache.leaseName(k.macaddr.String())
+		direction := "ingress"
+		if k.direction == directionEgress {
+			direction = "egress"
+		}
 		c <- prometheus.MustNewConstMetric(
 			app.descPkts(),
 			prometheus.CounterValue,
 			float64(v.packets),
 			k.macaddr.String(), k.ip.String(),
 			app.cache.linkName(k.ifindex),
-			deviceName,
+			deviceName, direction,
 		)
 		c <- prometheus.MustNewConstMetric(
 			app.descBytes(),
@@ -49,7 +53,7 @@ func (app *app) Collect(c chan<- prometheus.Metric) {
 			float64(v.bytes),
 			k.macaddr.String(), k.ip.String(),
 			app.cache.linkName(k.ifindex),
-			deviceName,
+			deviceName, direction,
 		)
 	}
 

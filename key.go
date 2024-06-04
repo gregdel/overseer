@@ -8,22 +8,39 @@ import (
 	"time"
 )
 
+type direction uint8
+
+const (
+	directionIngress direction = 0
+	directionEgress  direction = 1
+)
+
 type key struct {
-	macaddr net.HardwareAddr
-	ip      netip.Addr
-	ifindex uint32
+	macaddr   net.HardwareAddr
+	ip        netip.Addr
+	ifindex   uint32
+	direction direction
 }
 
 func (k *key) size() int {
-	// IP       (4)
-	// Ifindex  (4)
-	// Mac      (6)
-	// Padding  (2)
+	// IP        (4)
+	// Ifindex   (4)
+	// Mac       (6)
+	// Direction (1)
+	// Padding   (1)
 	return 16
 }
 
 func (k key) String() string {
-	return fmt.Sprintf("%s [%s@%d]", k.ip, k.macaddr, k.ifindex)
+	dir := "unknown"
+	if k.direction == directionIngress {
+		dir = "ingress"
+	} else if k.direction == directionEgress {
+		dir = "egress"
+	}
+
+	return fmt.Sprintf("ip:%s macaddr:%s ifindex:%d direction:%s",
+		k.ip, k.macaddr, k.ifindex, dir)
 }
 
 func (k *key) UnmarshalBinary(data []byte) error {
@@ -44,6 +61,8 @@ func (k *key) UnmarshalBinary(data []byte) error {
 	for i := 0; i < 6; i++ {
 		k.macaddr[i] = data[8+i]
 	}
+
+	k.direction = direction(data[14])
 
 	return nil
 }
