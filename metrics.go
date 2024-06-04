@@ -35,17 +35,13 @@ func (app *app) Collect(c chan<- prometheus.Metric) {
 	iterator := app.ebpf.Stats.Iterate()
 	for iterator.Next(&k, &v) {
 		deviceName, _ := app.cache.leaseName(k.macaddr.String())
-		direction := "ingress"
-		if k.direction == directionEgress {
-			direction = "egress"
-		}
 		c <- prometheus.MustNewConstMetric(
 			app.descPkts(),
 			prometheus.CounterValue,
 			float64(v.packets),
 			k.macaddr.String(), k.ip.String(),
 			app.cache.linkName(k.ifindex),
-			deviceName, direction,
+			deviceName, k.direction.String(),
 		)
 		c <- prometheus.MustNewConstMetric(
 			app.descBytes(),
@@ -53,7 +49,7 @@ func (app *app) Collect(c chan<- prometheus.Metric) {
 			float64(v.bytes),
 			k.macaddr.String(), k.ip.String(),
 			app.cache.linkName(k.ifindex),
-			deviceName, direction,
+			deviceName, k.direction.String(),
 		)
 	}
 

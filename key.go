@@ -15,7 +15,7 @@ const (
 	directionEgress
 )
 
-func dirString(d direction) string {
+func (d direction) String() string {
 	switch d {
 	case directionIngress:
 		return "ingress"
@@ -44,7 +44,7 @@ func (k *key) size() int {
 
 func (k key) String() string {
 	return fmt.Sprintf("ip:%s macaddr:%s ifindex:%d direction:%s",
-		k.ip, k.macaddr, k.ifindex, dirString(k.direction))
+		k.ip, k.macaddr, k.ifindex, k.direction)
 }
 
 func (k *key) UnmarshalBinary(data []byte) error {

@@ -164,15 +164,13 @@ func (app *app) attachTCX(name string) error {
 			return fmt.Errorf("attaching tcx: %w", err)
 		}
 
-		dir := dirString(direction)
-
-		pinPath := filepath.Join(ebpfPinPath, "overseer_tcx_"+name+"_"+dir)
+		pinPath := filepath.Join(ebpfPinPath, "overseer_tcx_"+name+"_"+direction.String())
 		if err := l.Pin(pinPath); err != nil {
 			fmt.Println("Failed to pin tcx program:", err)
 			continue
 		}
 
-		fmt.Printf("TCX program loaded on dev:%q direction:%q\n", name, dir)
+		fmt.Printf("TCX program loaded on dev:%q direction:%q\n", name, direction)
 	}
 
 	return nil
